@@ -997,7 +997,6 @@ class YOLOEDetect(Detect):
             cls_feat = cv3[i](x[i])
             loc_feat = cv2[i](x[i])
             assert isinstance(self.lrpc[i], LRPCHead)
-            print()
             box, score, idx = self.lrpc[i](
                 cls_feat,
                 loc_feat,
@@ -1253,15 +1252,12 @@ class YOLOESegment26(YOLOESegment):
         """Return model outputs and mask coefficients if training, otherwise return outputs and mask coefficients."""
         outputs = YOLOEDetect.forward(self, x)
         preds = outputs[1] if isinstance(outputs, tuple) else outputs
-        proto=self.proto([ xi.detach() for xi in x])  # mask protos
+        proto = self.proto([xi.detach() for xi in x])  # mask protos
 
         if isinstance(preds, dict):  # training and validating during training
-            if self.end2end:
+            if self.end2end and not hasattr(self, "lrpc"):  # not prompt-free
                 preds["one2many"]["proto"] = proto
-                if isinstance(proto, tuple):
-                    preds["one2one"]["proto"] = tuple(p.detach() for p in proto)
-                else:
-                    preds["one2one"]["proto"] = proto.detach()
+                preds["one2one"]["proto"] = proto.detach()
             else:
                 preds["proto"] = proto
         if self.training:
