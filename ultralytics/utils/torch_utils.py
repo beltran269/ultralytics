@@ -574,6 +574,19 @@ def one_cycle(y1=0.0, y2=1.0, steps=100):
     return lambda x: max((1 - math.cos(x * math.pi / steps)) / 2, 0) * (y2 - y1) + y1
 
 
+def poly_decay(power=0.9, steps=100):
+    """Return a lambda function for polynomial decay from 1.0 to 0.0 over a fixed number of steps.
+
+    Args:
+        power (float, optional): Polynomial decay exponent.
+        steps (int, optional): Number of steps.
+
+    Returns:
+        (function): Lambda function for computing the polynomial decay factor.
+    """
+    return lambda x: max(1 - x / max(steps, 1), 0) ** power
+
+
 def init_seeds(seed=0, deterministic=False):
     """Initialize random number generator (RNG) seeds https://pytorch.org/docs/stable/notes/randomness.html.
 

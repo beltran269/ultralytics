@@ -56,6 +56,7 @@ from ultralytics.utils.torch_utils import (
     convert_optimizer_state_dict_to_fp16,
     init_seeds,
     one_cycle,
+    poly_decay,
     select_device,
     strip_optimizer,
     torch_distributed_zero_first,
@@ -245,11 +246,34 @@ class BaseTrainer:
 
     def _setup_scheduler(self):
         """Initialize training learning rate scheduler."""
-        if self.args.cos_lr:
+        self._ensure_initial_lrs()
+        if self._use_poly_lr():
+            nb = len(self.train_loader)
+            nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1
+            self._poly_start_iter = max(nw + 1, 0)
+            self.lf = poly_decay(steps=max(nb * self.epochs - self._poly_start_iter, 1))
+            self.scheduler = None
+        elif self.args.cos_lr:
             self.lf = one_cycle(1, self.args.lrf, self.epochs)  # cosine 1->hyp['lrf']
+            self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
         else:
             self.lf = lambda x: max(1 - x / self.epochs, 0) * (1.0 - self.args.lrf) + self.args.lrf  # linear
-        self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
+            self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
+
+    def _use_poly_lr(self):
+        """Return whether polynomial LR scheduling is enabled."""
+        return bool(getattr(self.args, "poly_lr", False))
+
+    def _ensure_initial_lrs(self):
+        """Ensure each optimizer param group tracks its base learning rate."""
+        for x in self.optimizer.param_groups:
+            x.setdefault("initial_lr", x["lr"])
+
+    def _set_poly_lrs(self, step):
+        """Update learning rates for all param groups using the polynomial schedule."""
+        poly_step = max(step - getattr(self, "_poly_start_iter", 0), 0)
+        for x in self.optimizer.param_groups:
+            x["lr"] = x["initial_lr"] * self.lf(poly_step)
 
     def _setup_ddp(self):
         """Initialize and set the DistributedDataParallel parameters for training."""
@@ -356,7 +380,8 @@ class BaseTrainer:
 
         self.stopper, self.stop = EarlyStopping(patience=self.args.patience), False
         self.resume_training(ckpt)
-        self.scheduler.last_epoch = self.start_epoch - 1  # do not move
+        if self.scheduler:
+            self.scheduler.last_epoch = self.start_epoch - 1  # do not move
         self.run_callbacks("on_pretrain_routine_end")
 
     def _do_train(self):
@@ -365,6 +390,7 @@ class BaseTrainer:
             self._setup_ddp()
         self._setup_train()
 
+        use_poly_lr = self._use_poly_lr()
         nb = len(self.train_loader)  # number of batches
         nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1  # warmup iterations
         last_opt_step = -1
@@ -387,9 +413,10 @@ class BaseTrainer:
         while True:
             self.epoch = epoch
             self.run_callbacks("on_train_epoch_start")
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")  # suppress 'Detected lr_scheduler.step() before optimizer.step()'
-                self.scheduler.step()
+            if self.scheduler:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")  # suppress 'Detected lr_scheduler.step() before optimizer.step()'
+                    self.scheduler.step()
 
             self._model_train()
             if RANK != -1:
@@ -408,6 +435,8 @@ class BaseTrainer:
                 self.run_callbacks("on_train_batch_start")
                 # Warmup
                 ni = i + nb * epoch
+                if use_poly_lr:
+                    self._set_poly_lrs(ni)
                 if ni <= nw:
                     xi = [0, nw]  # x interp
                     self.accumulate = max(1, int(np.interp(ni, xi, [1, self.args.nbs / self.batch_size]).round()))
@@ -418,7 +447,7 @@ class BaseTrainer:
                             xi,
                             [
                                 self.args.warmup_bias_lr if x.get("param_group") == "bias" else 0.0,
-                                x["initial_lr"] * self.lf(epoch),
+                                x["initial_lr"] if use_poly_lr else x["initial_lr"] * self.lf(epoch),
                             ],
                         )
                         if "momentum" in x:
@@ -455,7 +484,8 @@ class BaseTrainer:
                     )
                     self._clear_memory()
                     self._build_train_pipeline()  # rebuild dataloaders, optimizer, scheduler
-                    self.scheduler.last_epoch = self.start_epoch - 1
+                    if self.scheduler:
+                        self.scheduler.last_epoch = self.start_epoch - 1
                     nb = len(self.train_loader)
                     nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1
                     last_opt_step = -1
@@ -541,7 +571,8 @@ class BaseTrainer:
                 mean_epoch_time = (t - self.train_time_start) / (epoch - self.start_epoch + 1)
                 self.epochs = self.args.epochs = math.ceil(self.args.time * 3600 / mean_epoch_time)
                 self._setup_scheduler()
-                self.scheduler.last_epoch = self.epoch  # do not move
+                if self.scheduler:
+                    self.scheduler.last_epoch = self.epoch  # do not move
                 self.stop |= epoch >= self.epochs  # stop if exceeded epochs
             self.run_callbacks("on_fit_epoch_end")
             self._clear_memory(0.5)  # clear if memory utilization > 50%
@@ -888,6 +919,7 @@ class BaseTrainer:
         """Load optimizer, scaler, EMA, and best_fitness from checkpoint."""
         if ckpt.get("optimizer") is not None:
             self.optimizer.load_state_dict(ckpt["optimizer"])
+        self._ensure_initial_lrs()
         if ckpt.get("scaler") is not None:
             self.scaler.load_state_dict(ckpt["scaler"])
         if self.ema and ckpt.get("ema"):
@@ -924,7 +956,8 @@ class BaseTrainer:
         unwrap_model(self.model).load_state_dict(ema_state)  # Load EMA weights into model
         self._load_checkpoint_state(ckpt)  # Load optimizer/scaler/EMA/best_fitness
         del ckpt, ema_state
-        self.scheduler.last_epoch = epoch - 1
+        if self.scheduler:
+            self.scheduler.last_epoch = epoch - 1
         return True
 
     def resume_training(self, ckpt):
@@ -1026,7 +1059,11 @@ class BaseTrainer:
             # higher lr for certain parameters in MuSGD when funetuning
             # pattern = re.compile(r"(?=.*23)(?=.*cv3)|proto\.semseg")
             # pattern = re.compile(r'(?:9|1[0-9]|2[0-3])\.')  # ‘9.’ ~ ‘23.’
-            pattern = re.compile(r'(?:1[0-9]|2[0-3])\.')  # ‘10.’ ~ ‘23.’
+            if self.args.pretrained:
+                pattern = re.compile(r'(?:1[0-9]|2[0-3])\.')  # ‘10.’ ~ ‘23.’
+            else:
+                pattern = re.compile(r"(?!)")
+            print(pattern)
             g_ = []  # new param groups
             for x in g:
                 p = x.pop("params")
