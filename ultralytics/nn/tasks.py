@@ -1,6 +1,7 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 import contextlib
+import io
 import pickle
 import re
 import types
@@ -1487,8 +1488,8 @@ def _make_safe_pickle_module(strict):
     unpickler_cls = type("SafeUnpickler", (SafeUnpickler,), {"strict": strict})
     safe_pickle = types.ModuleType("safe_pickle")
     safe_pickle.Unpickler = unpickler_cls
-    safe_pickle.load = pickle.load
-    safe_pickle.loads = pickle.loads
+    safe_pickle.load = lambda file_obj, **kwargs: unpickler_cls(file_obj, **kwargs).load()
+    safe_pickle.loads = lambda data, **kwargs: unpickler_cls(io.BytesIO(data), **kwargs).load()
     return safe_pickle
 
 
