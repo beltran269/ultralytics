@@ -26,7 +26,7 @@ class LiteRTBackend(BaseBackend):
         Args:
             weight (str | Path): Path to the .tflite model file or directory containing the model.
         """
-        check_requirements("ai-edge-litert")
+        check_requirements("ai-edge-litert-nightly")
         from ai_edge_litert.interpreter import Interpreter
 
         w = Path(weight)
