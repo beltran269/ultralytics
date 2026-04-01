@@ -1075,10 +1075,6 @@ class DetMetrics(SimpleClass, DataExportMixin):
         for k in self.stats.keys():
             self.stats[k].append(stat[k])
 
-    def update_image_metrics(self, stat: dict[str, Any]) -> None:
-        """Store per-image detection counts and derived metrics."""
-        self.image_metrics.append(stat)
-
     def process(self, save_dir: Path = Path("."), plot: bool = False, on_plot=None) -> dict[str, np.ndarray]:
         """Process predicted results for object detection and update metrics.
 
