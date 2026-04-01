@@ -146,7 +146,7 @@ The below examples showcase YOLO model validation with custom arguments in Pytho
     from ultralytics import YOLO
 
     # Load a model
-    model = YOLO("yolo11n.pt")
+    model = YOLO("yolo26n.pt")
 
     # Validate and access per-image metrics
     results = model.val(data="coco.yaml")
