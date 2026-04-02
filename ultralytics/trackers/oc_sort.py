@@ -419,14 +419,14 @@ class OCSORT(BYTETracker):
         return cost
 
     def _ocr_distance(self, tracks, detections):
-        """Compute IoU distance using tracks' last observation positions instead of Kalman predictions.
+        """Compute Buffered IoU distance using tracks' last observation positions.
 
         Args:
             tracks (list[OCSortTrack]): List of tracks with last_observation attributes.
             detections (list[OCSortTrack]): List of detections.
 
         Returns:
-            (np.ndarray): Cost matrix based on IoU with last observations.
+            (np.ndarray): Cost matrix based on BIoU with last observations.
         """
         atlbrs = []
         for track in tracks:
@@ -436,4 +436,4 @@ class OCSORT(BYTETracker):
                 obs = track.xyxy
             atlbrs.append(obs if track.angle is None else track.xywha)
         btlbrs = [det.xywha if det.angle is not None else det.xyxy for det in detections]
-        return matching.iou_distance(atlbrs, btlbrs)
+        return self._biou_distance(atlbrs, btlbrs)
