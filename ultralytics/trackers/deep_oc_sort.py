@@ -296,7 +296,7 @@ class DeepOCSORT(OCSORT):
         if self.use_byte:
             detections_second = self.init_track(results_second, feats_second if use_native_feats else img)
             r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-            dists = self._biou_distance(r_tracked_stracks, detections_second)
+            dists = matching.iou_distance(r_tracked_stracks, detections_second)
             if self.args.fuse_score:
                 dists = matching.fuse_score(dists, detections_second)
             matches, u_track_second, _ = matching.linear_assignment(dists, thresh=0.5)

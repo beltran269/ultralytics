@@ -317,7 +317,7 @@ class OCSORT(BYTETracker):
         if self.use_byte:
             detections_second = self.init_track(results_second, img)
             r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-            dists = self._biou_distance(r_tracked_stracks, detections_second)
+            dists = matching.iou_distance(r_tracked_stracks, detections_second)
             if self.args.fuse_score:
                 dists = matching.fuse_score(dists, detections_second)
             matches, u_track_second, _u_detection_second = matching.linear_assignment(dists, thresh=0.5)
