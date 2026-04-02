@@ -4,7 +4,7 @@
 # Docs: https://docs.ultralytics.com/modes/track/
 
 tracker_type: deepocsort # (str) Tracker backend: Deep OC-SORT with appearance features and GMC
-track_high_thresh: 0.3 # (float) First-stage match threshold; raise for cleaner tracks, lower to keep more
+track_high_thresh: 0.25 # (float) Slightly lowered for marginal recall gain
 track_low_thresh: 0.1 # (float) Second-stage threshold for low-score matches; used with use_byte=True
 new_track_thresh: 0.3 # (float) Start a new track if no match ≥ this; higher reduces false tracks
 track_buffer: 150 # (int) Test further extension
