@@ -13,7 +13,7 @@ fuse_score: True # (bool) Fuse detection score with motion/IoU for matching; sta
 
 # OC-SORT specifics (inherited)
 delta_t: 3 # (int) Temporal window for velocity direction computation in OCM
-inertia: 0.2 # (float) Weight of velocity consistency cost in association
+inertia: 0.0 # (float) Disabled: velocity cost may add noise with strong detector
 use_byte: True # (bool) Enable ByteTrack-style low-confidence second association pass
 
 # Deep OC-SORT specifics
