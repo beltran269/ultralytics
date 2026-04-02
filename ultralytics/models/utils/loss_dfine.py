@@ -300,8 +300,9 @@ class DfineLoss(nn.Module):
     ) -> torch.Tensor:
         dis_left = label.long()
         dis_right = dis_left + 1
-        loss = F.cross_entropy(pred, dis_left, reduction="none") * weight_left.reshape(-1)
-        loss = loss + F.cross_entropy(pred, dis_right, reduction="none") * weight_right.reshape(-1)
+        pred_f = pred.float()
+        loss = F.cross_entropy(pred_f, dis_left, reduction="none").to(pred.dtype) * weight_left.reshape(-1)
+        loss = loss + F.cross_entropy(pred_f, dis_right, reduction="none").to(pred.dtype) * weight_right.reshape(-1)
         if weight is not None:
             loss = loss * weight.float()
         return loss.sum() / avg_factor if avg_factor is not None else loss.sum()
@@ -330,11 +331,13 @@ class DfineLoss(nn.Module):
 
         weight_targets_local[idx] = ious.to(weight_targets_local.dtype)
         weight_targets_local = weight_targets_local.unsqueeze(-1).repeat(1, 1, 4).reshape(-1).detach()
+        pred_all_f = pred_all.float()
+        teacher_all_f = teacher_all.float()
         loss_match_local = weight_targets_local * (self.local_temperature**2) * (
             self.kl_loss(
-                F.log_softmax(pred_all / self.local_temperature, dim=1),
-                F.softmax(teacher_all.detach() / self.local_temperature, dim=1),
-            ).sum(-1)
+                F.log_softmax(pred_all_f / self.local_temperature, dim=1),
+                F.softmax(teacher_all_f.detach() / self.local_temperature, dim=1),
+            ).sum(-1).to(pred_all.dtype)
         )
         if not is_dn:
             batch_scale = 8 / pred_bboxes.shape[0]
