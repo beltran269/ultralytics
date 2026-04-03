@@ -53,7 +53,7 @@ class KalmanFilterXYAH:
 
         # Motion and observation uncertainty are chosen relative to the current state estimate
         self._std_weight_position = 1.0 / 20
-        self._std_weight_velocity = 1.0 / 80  # doubled for more responsive predictions
+        self._std_weight_velocity = 1.0 / 160
 
     def initiate(self, measurement: np.ndarray):
         """Create a track from an unassociated measurement.
