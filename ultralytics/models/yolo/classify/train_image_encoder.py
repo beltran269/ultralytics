@@ -11,6 +11,7 @@ Dataset support: WebDataset tar shards (DataComp-12M) and image folders (COCO, I
 
 from __future__ import annotations
 
+import itertools
 import json
 from copy import copy
 from pathlib import Path
@@ -62,6 +63,10 @@ class _WebDatasetLoader(DataLoader):
         super().__init__(
             _IterDS(), batch_size=batch_size, num_workers=num_workers, pin_memory=True, drop_last=drop_last
         )
+
+    def __iter__(self):
+        """Yield batches, stopping at epoch boundary (same pattern as InfiniteDataLoader)."""
+        return itertools.islice(super().__iter__(), len(self))
 
     def reset(self):
         """No-op: WebDataset workers don't need reset (no mosaic state)."""
@@ -270,8 +275,6 @@ class ImageEncoderTrainer(ClassificationTrainer):
             if not num_samples:
                 num_samples = len(list(Path(dataset_path).glob("shards/*.tar"))) * 6000
                 LOGGER.warning(f"No stats files found, estimating {num_samples} samples from shard count")
-            # Align epoch length: with_epoch on pipeline must match DataLoader __len__
-            dataset.with_epoch(num_samples)
             return _WebDatasetLoader(dataset, num_samples, batch_size, self.args.workers, drop_last=mode == "train")
         return DataLoader(
             dataset,
