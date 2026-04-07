@@ -127,9 +127,6 @@ class ImageEncoderTrainer(ClassificationTrainer):
         if overrides is None:
             overrides = {}
         overrides.setdefault("close_mosaic", 0)  # no mosaic in distillation, avoids .reset() call
-        # Use bf16 instead of fp16 for AMP: fp16 backbone produces nan on ~5% of DataComp-12M batches
-        # due to limited exponent range (max 65504). bf16 matches fp32 range. Follows EUPE/DUNE convention.
-        torch.set_autocast_dtype("cuda", torch.bfloat16)
         # Support both 'teacher_name' (single) and 'teacher_names' (multi, '+' separated)
         raw = overrides.pop("teacher_names", overrides.pop("teacher_name", "eupe:vitb16"))
         self.teacher_names = raw.split("+") if isinstance(raw, str) else raw
@@ -138,6 +135,14 @@ class ImageEncoderTrainer(ClassificationTrainer):
         self._teacher_imgsz = max(TEACHER_REGISTRY[n]["imgsz"] for n in self.teacher_names)
         self.teachers = {}
         super().__init__(cfg, overrides, _callbacks)
+
+    def _setup_train(self):
+        """Set bf16 autocast after AMP check to avoid poisoning the yolo26n detection test."""
+        super()._setup_train()
+        if self.amp:
+            # bf16 instead of fp16: fp16 backbone produces nan on ~5% of DataComp-12M batches
+            # (max 65504 vs bf16 sharing fp32 exponent range). Follows DUNE convention.
+            torch.set_autocast_dtype("cuda", torch.bfloat16)
 
     def get_dataset(self):
         """Build minimal data dict for distillation (no check_cls_dataset needed).
