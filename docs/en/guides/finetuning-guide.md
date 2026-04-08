@@ -14,13 +14,13 @@ This guide covers fine-tuning [YOLO26](../models/yolo26.md) on custom datasets, 
 
 A pretrained model has already learned general visual features - edge detection, texture recognition, shape understanding - from millions of images. [Transfer learning](https://www.ultralytics.com/glossary/transfer-learning) through fine-tuning reuses that knowledge and only teaches the model what the new classes look like, which is why it converges faster and requires less data. Training from scratch discards all of that and forces the model to learn everything from pixel-level patterns up, which demands significantly more resources.
 
-| | Fine-Tuning | Training from Scratch |
-|---|---|---|
-| **Starting weights** | Pretrained on COCO (80 classes) | Random initialization |
-| **Command** | `YOLO("yolo26n.pt")` | `YOLO("yolo26n.yaml")` |
-| **Convergence** | Faster - backbone is already trained | Slower - all layers learn from zero |
-| **Data requirements** | Lower - pretrained features compensate for less data | Higher - model must learn all features from the dataset alone |
-| **When to use** | Custom classes with natural images | Domains fundamentally different from COCO (medical, satellite, radar) |
+|                       | Fine-Tuning                                          | Training from Scratch                                                 |
+| --------------------- | ---------------------------------------------------- | --------------------------------------------------------------------- |
+| **Starting weights**  | Pretrained on COCO (80 classes)                      | Random initialization                                                 |
+| **Command**           | `YOLO("yolo26n.pt")`                                 | `YOLO("yolo26n.yaml")`                                                |
+| **Convergence**       | Faster - backbone is already trained                 | Slower - all layers learn from zero                                   |
+| **Data requirements** | Lower - pretrained features compensate for less data | Higher - model must learn all features from the dataset alone         |
+| **When to use**       | Custom classes with natural images                   | Domains fundamentally different from COCO (medical, satellite, radar) |
 
 !!! tip "Fine-tuning requires no extra code"
 
@@ -59,12 +59,12 @@ For datasets with the same number of classes as the pretrained model (for exampl
 
 Larger models have more capacity but also more parameters to update, which increases the risk of overfitting on small datasets. As a general rule, match the model size to the dataset size:
 
-| Dataset Size | Recommended Model | Params |
-|-------------|-------------------|--------|
-| < 500 images | [YOLO26n](../models/yolo26.md) | 2.4M |
-| 500-5,000 images | [YOLO26s](../models/yolo26.md) | 9.5M |
-| 5,000-20,000 images | [YOLO26m](../models/yolo26.md) | 20.4M |
-| 20,000+ images | [YOLO26l](../models/yolo26.md) / [YOLO26x](../models/yolo26.md) | 24.8M / 55.7M |
+| Dataset Size        | Recommended Model                                               | Params        |
+| ------------------- | --------------------------------------------------------------- | ------------- |
+| < 500 images        | [YOLO26n](../models/yolo26.md)                                  | 2.4M          |
+| 500-5,000 images    | [YOLO26s](../models/yolo26.md)                                  | 9.5M          |
+| 5,000-20,000 images | [YOLO26m](../models/yolo26.md)                                  | 20.4M         |
+| 20,000+ images      | [YOLO26l](../models/yolo26.md) / [YOLO26x](../models/yolo26.md) | 24.8M / 55.7M |
 
 These are starting points - the optimal model size depends on the complexity of the task, the number of classes, and the hardware available for deployment. See the full [YOLO26 model page](../models/yolo26.md) for performance benchmarks.
 
@@ -106,12 +106,12 @@ The `freeze` parameter accepts either an integer or a list. An integer `freeze=1
 
 The right freeze depth depends on how similar the target domain is to the pretrained data and how much training data is available:
 
-| Scenario | Recommendation | Rationale |
-|----------|---------------|-----------|
-| Large dataset, similar domain | `freeze=None` (default) | Enough data to adapt all layers without overfitting |
-| Small dataset, similar domain | `freeze=10` | Preserves backbone features, reduces trainable parameters |
-| Very small dataset | `freeze=22` | Only the detection head trains, minimizing overfitting risk |
-| Domain far from COCO | `freeze=None` | Backbone features may not transfer well and need retraining |
+| Scenario                      | Recommendation          | Rationale                                                   |
+| ----------------------------- | ----------------------- | ----------------------------------------------------------- |
+| Large dataset, similar domain | `freeze=None` (default) | Enough data to adapt all layers without overfitting         |
+| Small dataset, similar domain | `freeze=10`             | Preserves backbone features, reduces trainable parameters   |
+| Very small dataset            | `freeze=22`             | Only the detection head trains, minimizing overfitting risk |
+| Domain far from COCO          | `freeze=None`           | Backbone features may not transfer well and need retraining |
 
 Freeze depth can also be treated as a hyperparameter - trying a few values (0, 5, 10) and comparing validation mAP is a practical way to find the best setting for a specific dataset.
 
