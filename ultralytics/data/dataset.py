@@ -391,11 +391,11 @@ class DepthFormat:
                     depth = cv2.resize(depth, (img_w, img_h), interpolation=cv2.INTER_LINEAR)
                 labels["depth"] = torch.from_numpy(np.ascontiguousarray(depth[None])).float()  # (1, H, W)
 
-            # Convert image: HWC BGR uint8 → CHW RGB float [0,1]
+            # Convert image: HWC BGR uint8 → CHW RGB uint8 (trainer handles /255 + float conversion)
             if img.ndim == 2:
                 img = img[:, :, None]
             img = np.ascontiguousarray(img.transpose(2, 0, 1)[::-1])  # HWC→CHW, BGR→RGB
-            labels["img"] = torch.from_numpy(img).float() / 255.0
+            labels["img"] = torch.from_numpy(img)
 
         return labels
 

@@ -62,6 +62,14 @@ class DepthTrainer(yolo.detect.DetectionTrainer):
             fraction=self.args.fraction if mode == "train" else 1.0,
         )
 
+    def preprocess_batch(self, batch):
+        """Preprocess batch: normalize images and keep depth as float32."""
+        batch = super().preprocess_batch(batch)
+        # Depth maps are already float32 from DepthFormat, just ensure on device
+        if "depth" in batch:
+            batch["depth"] = batch["depth"].float()
+        return batch
+
     def get_validator(self):
         """Return a DepthValidator for model validation."""
         self.loss_names = "silog", "l1"
