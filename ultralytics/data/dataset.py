@@ -308,6 +308,98 @@ class YOLODataset(BaseDataset):
         return new_batch
 
 
+class DepthDataset(YOLODataset):
+    """Dataset for monocular depth estimation with paired RGB + depth map loading.
+
+    Extends YOLODataset to load depth ground truth maps alongside RGB images.
+    Depth maps are stored as .npy files in a parallel directory structure
+    (images/train/*.jpg → depth/train/*.npy).
+
+    Examples:
+        >>> dataset = DepthDataset(img_path="/data/nyu/images/train", data={"nc": 1})
+    """
+
+    def cache_labels(self, path=Path("./labels.cache")):
+        """Cache labels and add depth file paths."""
+        x = super().cache_labels(path)
+        for label in x["labels"]:
+            im_file = label["im_file"]
+            # Map images/split/name.jpg → depth/split/name.npy
+            depth_file = im_file.replace("/images/", "/depth/")
+            depth_file = str(Path(depth_file).with_suffix(".npy"))
+            label["depth_file"] = depth_file
+        return x
+
+    def get_image_and_label(self, index):
+        """Load image, label, and depth map for the given index."""
+        label = super().get_image_and_label(index)
+        # Load depth map
+        depth_file = self.labels[index].get("depth_file", "")
+        if depth_file and Path(depth_file).exists():
+            depth = np.load(depth_file).astype(np.float32)
+            # Resize depth to match the resized image
+            h, w = label["resized_shape"]
+            if depth.shape[:2] != (h, w):
+                depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_LINEAR)
+            label["depth"] = depth
+        return label
+
+    def build_transforms(self, hyp=None):
+        """Build transforms for depth estimation — simpler than detection.
+
+        Only applies LetterBox (resize+pad) and basic flips. No mosaic, mixup, or
+        perspective transforms since they would create discontinuities in depth maps.
+        """
+        transforms = Compose([
+            LetterBox(new_shape=(self.imgsz, self.imgsz), auto=False, scaleFill=True),
+            DepthFormat(),
+        ])
+        return transforms
+
+    @staticmethod
+    def collate_fn(batch):
+        """Collate samples into batches, stacking depth maps alongside images."""
+        new_batch = {}
+        batch = [dict(sorted(b.items())) for b in batch]
+        keys = batch[0].keys()
+        values = list(zip(*[list(b.values()) for b in batch]))
+        for i, k in enumerate(keys):
+            value = values[i]
+            if k in {"img", "depth"}:
+                value = torch.stack(value, 0)
+            elif k in {"masks", "keypoints", "bboxes", "cls", "segments", "obb"}:
+                value = torch.cat(value, 0)
+            new_batch[k] = value
+        if "batch_idx" in new_batch:
+            new_batch["batch_idx"] = list(new_batch["batch_idx"])
+            for i in range(len(new_batch["batch_idx"])):
+                new_batch["batch_idx"][i] += i
+            new_batch["batch_idx"] = torch.cat(new_batch["batch_idx"], 0)
+        return new_batch
+
+
+class DepthFormat:
+    """Format transform for depth estimation: converts images and depth maps to tensors."""
+
+    def __call__(self, labels):
+        img = labels.get("img", labels.get("image"))
+        if img is not None:
+            if img.ndim == 2:
+                img = img[:, :, None]
+            img = img.transpose(2, 0, 1)  # HWC → CHW
+            img = np.ascontiguousarray(img[::-1])  # BGR → RGB
+            labels["img"] = torch.from_numpy(img).float() / 255.0
+
+        depth = labels.get("depth")
+        if depth is not None:
+            # Apply same letterbox transform to depth
+            if depth.ndim == 2:
+                depth = depth[None]  # (1, H, W)
+            labels["depth"] = torch.from_numpy(np.ascontiguousarray(depth)).float()
+
+        return labels
+
+
 class YOLOMultiModalDataset(YOLODataset):
     """Dataset class for loading object detection and/or segmentation labels in YOLO format with multi-modal support.
 
