@@ -147,6 +147,7 @@ This approach is particularly useful when the target domain differs significantl
 
 ### Model produces no predictions
 
+- **Insufficient training data**: training with very few samples is the most common cause - the model cannot learn or generalize from too little data. Ensure enough diverse examples per class before investigating other causes.
 - **Check dataset paths**: incorrect paths in `data.yaml` silently produce zero labels. Run `yolo detect val model=yolo26n.pt data=your_data.yaml` before training to confirm labels load correctly.
 - **Lower confidence threshold**: if predictions exist but are filtered out, try `conf=0.1` during inference.
 - **Verify class count**: ensure `nc` in `data.yaml` matches the actual number of classes in the label files.
