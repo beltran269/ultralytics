@@ -31,7 +31,7 @@ def torch2ethos(
     """
     check_executorch_requirements()
     check_requirements("tosa-tools", "ethos-u-vela")
-    
+
     from executorch import version as executorch_version
     from executorch.backends.arm.ethosu import EthosUCompileSpec
     from executorch.backends.arm.quantizer import EthosUQuantizer, get_symmetric_quantization_config
