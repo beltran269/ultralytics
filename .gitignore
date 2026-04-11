@@ -204,5 +204,8 @@ calibration_*.npy
 args.yaml
 results.csv
 
-# Claude
+# Claude & Codex
 .claude/
+.agents/
+.codex/
+AGENTS.md
