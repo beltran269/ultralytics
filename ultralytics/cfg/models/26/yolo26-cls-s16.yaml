@@ -1,0 +1,38 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# YOLO26-cls stride-16 variant for encoder distillation with ViT teacher spatial alignment.
+# Motivation: base yolo26-cls has stride 32 -> 7x7=49 patches at 224 input, requiring 4-5x
+# bilinear upsample to match ViT teachers (DINOv3-ViT-B: 196 patches at 224, EUPE-ViT-B: 256
+# patches at 256). This variant reduces stride to 16 -> 14x14=196 patches, matching DINOv3-ViT
+# exactly (arXiv:2312.06709 Sec 3, patch_size=16 at 224) and reducing EUPE-ViT mismatch from
+# 5.2x to 1.3x (arXiv:2603.22387 Sec 4.1, patch_size=16 at 256).
+# Changes vs yolo26-cls.yaml:
+#   - Layer 7 Conv: stride 2 -> 1 (total backbone stride 32 -> 16)
+#   - Layer 9: C2PSA -> C3k2 (removes attention for NCNN/CPU/Intel export compatibility)
+# Tradeoff: 1.9x GFLOPS (24.5 vs 13.2), +5.8% params (7.1M vs 6.7M). Misaligns with ConvNeXt
+# teachers (stride 32, 49-64 patches) which now need downsampling. Use with ViT teachers only.
+
+# Parameters
+nc: 1000 # number of classes
+scales:
+  # [depth, width, max_channels]
+  s: [0.50, 0.50, 1024]
+  l: [1.00, 1.00, 512]
+
+# YOLO26 stride-16 backbone
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]] # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]]
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]]
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
+  - [-1, 2, C3k2, [512, True]]
+  - [-1, 1, Conv, [1024, 3, 1]] # 7-stride 1 (was stride 2 in yolo26-cls.yaml), keeps 14x14 to match ViT patch_size=16
+  - [-1, 2, C3k2, [1024, True]] # 8-operates at 14x14 (was 7x7 in base)
+  - [-1, 2, C3k2, [1024, True]] # 9-C3k2 replaces C2PSA (no attention, NCNN/CPU safe)
+
+# YOLO26 head
+head:
+  - [-1, 1, Classify, [nc]] # Classify
