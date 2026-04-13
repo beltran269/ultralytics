@@ -50,6 +50,7 @@ class Events:
         self.events = []  # pending events
         self.rate_limit = 30.0  # rate limit (seconds)
         self.t = 0.0  # last send timestamp (seconds)
+        self._thread = None  # reference to the last background send thread
         self.metadata = {
             "cli": Path(ARGV[0]).name == "yolo",
             "install": "git" if GIT.is_repo else "pip" if IS_PIP_PACKAGE else "other",
@@ -60,6 +61,7 @@ class Events:
             "env": ENVIRONMENT,
             "session_id": round(random.random() * 1e15),
             "engagement_time_msec": 1000,
+            "debug_mode":True,
         }
         self.enabled = (
             SETTINGS["sync"]
@@ -69,13 +71,17 @@ class Events:
             and (IS_PIP_PACKAGE or GIT.origin == "https://github.com/ultralytics/ultralytics.git")
         )
 
-    def __call__(self, cfg, device=None, backend=None) -> None:
+    def __call__(self, cfg, device=None, backend=None, imgsz=None, model_params=None, speed=None) -> None:
         """Queue an event and flush the queue asynchronously when the rate limit elapses.
 
         Args:
             cfg (IterableSimpleNamespace): The configuration object containing mode and task information.
             device (torch.device | str, optional): The device type (e.g., 'cpu', 'cuda').
             backend (object | None, optional): The inference backend instance used during prediction.
+            imgsz (int | list | None, optional): Input image size used during prediction.
+            model_params (int | None, optional): Total number of model parameters.
+            speed (dict | None, optional): Per-image inference speed dict with keys 'preprocess',
+                'inference', and 'postprocess' (all in milliseconds).
         """
         if not self.enabled:
             # Events disabled, do nothing
@@ -93,6 +99,14 @@ class Events:
                 params["format"] = cfg.format
             if cfg.mode == "predict":
                 params["backend"] = type(backend).__name__ if backend is not None else None
+                if imgsz is not None:
+                    params["imgsz"] = imgsz[0] if isinstance(imgsz, (list, tuple)) else imgsz
+                if model_params is not None:
+                    params["model_params"] = model_params
+                if speed is not None:
+                    params["speed_preprocess_ms"] = round(speed.get("preprocess") or 0, 2)
+                    params["speed_inference_ms"] = round(speed.get("inference") or 0, 2)
+                    params["speed_postprocess_ms"] = round(speed.get("postprocess") or 0, 2)
             self.events.append({"name": cfg.mode, "params": params})
 
         # Check rate limit and return early if under limit
@@ -102,15 +116,28 @@ class Events:
 
         # Overrate limit: send a snapshot of queued events in a background thread
         payload_events = list(self.events)  # snapshot to avoid race with queue reset
-        Thread(
+        self._thread = Thread(
             target=_post,
             args=(self.url, {"client_id": SETTINGS["uuid"], "events": payload_events}),  # SHA-256 anonymized
             daemon=True,
-        ).start()
+        )
+        self._thread.start()
 
         # Reset queue and rate limit timer
         self.events = []
         self.t = t
+
+    def flush(self, timeout: float = 5.0) -> None:
+        """Block until the in-flight background send thread completes or times out.
+
+        Call this at the end of short-lived processes (e.g. single-image predict) so the
+        daemon thread is not killed before the POST request finishes.
+
+        Args:
+            timeout (float): Maximum seconds to wait for the thread to finish.
+        """
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=timeout)
 
 
 events = Events()

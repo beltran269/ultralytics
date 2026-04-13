@@ -85,8 +85,35 @@ def on_val_start(validator):
 
 def on_predict_start(predictor):
     """Run events on predict start."""
-    backend = getattr(getattr(predictor, "model", None), "backend", None)
-    events(predictor.args, predictor.device, backend=backend)
+    pass  # Event is deferred to on_predict_end where speed data is available
+
+
+def on_predict_batch_end(predictor):
+    """Run events on predict batch end, collecting imgsz, model params, and inference speed."""
+    model = getattr(predictor, "model", None)
+    backend = getattr(model, "backend", None)
+
+    # Image size from args
+    imgsz = getattr(predictor.args, "imgsz", None)
+
+    # Model parameter count (PyTorch models only)
+    try:
+        model_params = sum(p.numel() for p in model.parameters()) if model and hasattr(model, "parameters") else None
+    except Exception:
+        model_params = None
+
+    # Per-image speed from the last processed batch
+    speed = None
+    results = getattr(predictor, "results", None)
+    if results:
+        speed = getattr(results[0], "speed", None)
+
+    events(predictor.args, predictor.device, backend=backend, imgsz=imgsz, model_params=model_params, speed=speed)
+
+
+def on_predict_end(predictor):
+    """Flush the events queue after prediction so daemon thread completes before process exits."""
+    events.flush()
 
 
 def on_export_start(exporter):
@@ -104,6 +131,8 @@ callbacks = (
         "on_train_start": on_train_start,
         "on_val_start": on_val_start,
         "on_predict_start": on_predict_start,
+        "on_predict_batch_end": on_predict_batch_end,
+        "on_predict_end": on_predict_end,
         "on_export_start": on_export_start,
     }
     if SETTINGS["hub"] is True
