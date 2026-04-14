@@ -78,18 +78,24 @@ def build_engine_fp16(onnx_path, engine_path, workspace=None, half=True, shape=(
 
     if half and fp32_attn:
         config.set_flag(trt.BuilderFlag.OBEY_PRECISION_CONSTRAINTS)
-        # Match attention blocks (backbone + decoder) and norm internals.
-        attn_re = re.compile(r"/attn/|/self_attn/|/cross_attn/|/norm|/gateway/norm")
-        overflow_types = {trt.LayerType.ELEMENTWISE, trt.LayerType.REDUCE, trt.LayerType.UNARY}
+        # Match actual TensorRT layer names parsed from the DEIMv2 ONNX:
+        # attention is decomposed into MatMul/Softmax, while some decoder norms
+        # are still lowered into Reduce/Pow/Unary/Elementwise subgraphs.
+        attn_re = re.compile(r"/attn/|/self_attn/|/cross_attn/")
+        norm_re = re.compile(r"/(?:norm\d*|gateway/norm)(?:/|$)")
+        norm_internal_types = {trt.LayerType.ELEMENTWISE, trt.LayerType.REDUCE, trt.LayerType.UNARY}
         n_pinned = 0
         for i in range(network.num_layers):
             layer = network.get_layer(i)
+            name = layer.name or ""
             pin = False
             if layer.type == trt.LayerType.SOFTMAX:
                 pin = True
-            elif layer.type == trt.LayerType.MATRIX_MULTIPLY and attn_re.search(layer.name):
+            elif layer.type == trt.LayerType.NORMALIZATION:
                 pin = True
-            elif attn_re.search(layer.name) and layer.type in overflow_types:
+            # elif layer.type == trt.LayerType.MATRIX_MULTIPLY and attn_re.search(name):
+            #     pin = True
+            elif norm_re.search(name) and layer.type in norm_internal_types:
                 pin = True
             if pin:
                 layer.precision = trt.float32
