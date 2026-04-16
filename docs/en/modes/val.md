@@ -166,9 +166,9 @@ The below examples showcase YOLO model validation with custom arguments in Pytho
     |-------------|---------------------------------------------------|
     | `precision` | Precision score for the image (`tp / (tp + fp)`). |
     | `recall`    | Recall score for the image (`tp / (tp + fn)`).    |
-    | `tp`        | True positives for the image.                     |
-    | `fp`        | False positives for the image.                    |
-    | `fn`        | False negatives for the image.                    |
+    | `tp`        | Number of true positives for the image.           |
+    | `fp`        | Number of false positives for the image.          |
+    | `fn`        | Number of false negatives for the image.          |
 
     This feature is available for detection, segmentation, pose, and OBB tasks.
 
