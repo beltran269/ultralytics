@@ -1025,9 +1025,19 @@ class Metric(SimpleClass):
         """
         # pick the tp with iou > 0.5 by default
         tp = tp[:, 0].sum()
-        precision = tp / pred_cls.shape[0] if pred_cls.shape[0] else 0
-        recall = tp / target_cls.shape[0] if target_cls.shape[0] else 0
-        self.image_metrics[im_name] = {"precision": float(precision), "recall": float(recall)}
+        num_preds = pred_cls.shape[0]
+        num_targets = target_cls.shape[0]
+        fp = num_preds - tp
+        fn = num_targets - tp
+        precision = tp / num_preds if num_preds else 0
+        recall = tp / num_targets if num_targets else 0
+        self.image_metrics[im_name] = {
+            "precision": float(precision),
+            "recall": float(recall),
+            "tp": tp,
+            "fp": fp,
+            "fn": fn,
+        }
 
 
 class DetMetrics(SimpleClass, DataExportMixin):
