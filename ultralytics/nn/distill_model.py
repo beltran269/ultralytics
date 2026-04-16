@@ -55,17 +55,16 @@ class DistillationModel(nn.Module):
         super().__init__()
         if isinstance(teacher_model, str):
             teacher_model = load_checkpoint(teacher_model)[0]
-        feats_idx = self.get_distill_layers(student_model)
         device = next(student_model.parameters()).device
         self.teacher_model = teacher_model.to(device)
         self._freeze_teacher()
         self.student_model = student_model
-        self.feats_idx = feats_idx
+        self.feats_idx = self.get_distill_layers(student_model)
 
         # Hook-based feature capture: identical for teacher and student
         self._teacher_feats = {}
         self._student_feats = {}
-        for idx in feats_idx:
+        for idx in self.feats_idx:
             self.teacher_model.model[idx].register_forward_hook(FeatureHook(self._teacher_feats, idx))
             self.student_model.model[idx].register_forward_hook(FeatureHook(self._student_feats, idx))
 
@@ -74,8 +73,8 @@ class DistillationModel(nn.Module):
         with smart_inference_mode():
             teacher_model(torch.zeros(2, 3, imgsz, imgsz).to(device))
             student_model(torch.zeros(2, 3, imgsz, imgsz).to(device))
-        teacher_output = [self._teacher_feats[idx] for idx in feats_idx]
-        student_output = [self._student_feats[idx] for idx in feats_idx]
+        teacher_output = [self._teacher_feats[idx] for idx in self.feats_idx]
+        student_output = [self._student_feats[idx] for idx in self.feats_idx]
         assert len(teacher_output) == len(student_output), "Feature dimensions must match in length."
 
         self.split_sizes = []
