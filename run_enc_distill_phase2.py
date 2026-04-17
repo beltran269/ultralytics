@@ -16,7 +16,7 @@ from pathlib import Path
 
 import torch
 
-from callbacks import grad_clip, muon_w, wandb_config
+from callbacks import grad_clip, muon_w, nfs_sync, wandb_config
 from ultralytics import YOLO
 
 
@@ -46,7 +46,10 @@ _AUG_ARGS = dict(
     crop_fraction=1,
 )
 
-NFS_RUNS = "/data/shared-datasets/fatih-runs/classify/yolo-next-encoder"
+# Write checkpoints/logs to local SSD, mirror to shared NFS periodically (see callbacks/nfs_sync.py).
+LOCAL_PROJECT = "/home/fatih/runs/yolo-next-encoder"
+NFS_MIRROR_ROOT = "/data/shared-datasets/fatih-runs/classify/yolo-next-encoder"
+SYNC_INTERVAL_SEC = 600
 
 
 def main(argv: list[str]) -> None:
@@ -85,6 +88,9 @@ def main(argv: list[str]) -> None:
     if mode in ("finetune", "coco_det", "coco_det_frozen"):
         model.add_callback("on_train_start", muon_w.override(0.1))
     model.add_callback("on_train_start", grad_clip.override(1.0))
+    sync_start, sync_end = nfs_sync.setup(NFS_MIRROR_ROOT, interval_sec=SYNC_INTERVAL_SEC)
+    model.add_callback("on_train_start", sync_start)
+    model.add_callback("on_train_end", sync_end)
     model.add_callback(
         "on_pretrain_routine_start",
         wandb_config.log_config(
@@ -99,8 +105,7 @@ def main(argv: list[str]) -> None:
     train_args = dict(
         pretrained=phase1_weights,
         device=gpu if mode == "coco_det" else int(gpu),
-        project=resume_args.get("project", "yolo-next-encoder"),
-        save_dir=f"{NFS_RUNS}/{name}",
+        project=resume_args.get("project") or LOCAL_PROJECT,
         name=name,
         cos_lr=True,
         warmup_bias_lr=0,

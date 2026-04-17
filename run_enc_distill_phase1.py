@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 
-from callbacks import beta2_override, grad_clip, wandb_config
+from callbacks import beta2_override, grad_clip, nfs_sync, wandb_config
 from ultralytics import YOLO
 from ultralytics.models.yolo.classify.train_image_encoder import ImageEncoderTrainer
 
@@ -19,6 +19,11 @@ RECIPES = {
     # Same loss as ours (0.9cos+0.1L1). beta2=0.95 from MobileCLIP2 (training/configs/run_dfndr2b.sh)
     "radio": dict(lr0=1e-3, weight_decay=0.02, warmup_epochs=1, epochs=30, momentum=0.9, grad_clip=1.0, beta2=0.95),
 }
+
+# Write checkpoints/logs to local SSD, mirror to shared NFS periodically (see callbacks/nfs_sync.py).
+LOCAL_PROJECT = "/home/fatih/runs/yolo-next-encoder"
+NFS_MIRROR_ROOT = "/data/shared-datasets/fatih-runs/classify/yolo-next-encoder"
+SYNC_INTERVAL_SEC = 600
 
 
 def _pop_flag(argv: list[str], flag: str, is_bool: bool = False) -> tuple[list[str], str]:
@@ -57,10 +62,12 @@ def main(argv: list[str]) -> None:
     args, cos_w = _pop_flag(args, "--cos_weight")
     args, l1_w = _pop_flag(args, "--l1_weight")
     args, cls_l1_str = _pop_flag(args, "--cls_l1", is_bool=True)
+    args, lr_override = _pop_flag(args, "--lr")
 
     cos_weight = float(cos_w) if cos_w else 0.9
     l1_weight = float(l1_w) if l1_w else 0.1
     cls_l1 = bool(cls_l1_str)
+    lr0 = float(lr_override) if lr_override else r["lr0"]
 
     resume_args = _load_train_args(resume) if resume else {}
     gpu = args[0] if args else "0"
@@ -79,6 +86,9 @@ def main(argv: list[str]) -> None:
         model.add_callback("on_train_start", grad_clip.override(r["grad_clip"]))
     if r["beta2"]:
         model.add_callback("on_train_start", beta2_override.override(r["beta2"]))
+    sync_start, sync_end = nfs_sync.setup(NFS_MIRROR_ROOT, interval_sec=SYNC_INTERVAL_SEC)
+    model.add_callback("on_train_start", sync_start)
+    model.add_callback("on_train_end", sync_end)
     model.add_callback(
         "on_pretrain_routine_start",
         wandb_config.log_config(
@@ -102,7 +112,7 @@ def main(argv: list[str]) -> None:
         l1_weight=l1_weight,
         cls_l1=cls_l1,
         device=gpu,
-        project=resume_args.get("project", "yolo-next-encoder"),
+        project=resume_args.get("project") or LOCAL_PROJECT,
         name=name,
         epochs=epochs or r["epochs"],
         batch=128,
@@ -110,7 +120,7 @@ def main(argv: list[str]) -> None:
         patience=5,
         nbs=512,
         cos_lr=True,
-        lr0=r["lr0"],
+        lr0=lr0,
         lrf=0.01,
         momentum=r["momentum"],
         weight_decay=r["weight_decay"],
