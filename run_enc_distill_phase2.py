@@ -20,12 +20,20 @@ from callbacks import grad_clip, muon_w, nfs_sync, paths, wandb_config
 from ultralytics import YOLO
 
 
-def _pop_resume(argv: list[str]) -> tuple[list[str], str]:
-    """Return argv without '--resume <path>' and the resume path."""
-    if "--resume" not in argv:
+def _pop_flag(argv: list[str], flag: str, is_bool: bool = False) -> tuple[list[str], str]:
+    """Pop a --flag [value] pair from argv, return (remaining_argv, value).
+
+    Args:
+        argv: argument list
+        flag: flag name (e.g. "--resume")
+        is_bool: if True, flag has no value argument
+    """
+    if flag not in argv:
         return argv, ""
-    index = argv.index("--resume")
-    return argv[:index] + argv[index + 2 :], argv[index + 1]
+    i = argv.index(flag)
+    if is_bool:
+        return argv[:i] + argv[i + 1 :], "true"
+    return argv[:i] + argv[i + 2 :], argv[i + 1]
 
 
 def _load_train_args(resume: str) -> dict:
@@ -49,12 +57,10 @@ _AUG_ARGS = dict(
 
 def main(argv: list[str]) -> None:
     """Launch a fresh phase 2 run or resume from a checkpoint."""
-    argv, resume = _pop_resume(argv[1:])
-    fork_from = ""
-    if "--fork_from" in argv:
-        i = argv.index("--fork_from")
-        fork_from = argv[i + 1]
-        argv = argv[:i] + argv[i + 2:]
+    argv = argv[1:]
+    argv, resume = _pop_flag(argv, "--resume")
+    argv, fork_from = _pop_flag(argv, "--fork_from")
+    argv, lr_override = _pop_flag(argv, "--lr")
     if resume:
         resume = paths.patch_resume(resume)
     resume_args = _load_train_args(resume) if resume else {}
@@ -186,6 +192,8 @@ def main(argv: list[str]) -> None:
             optimizer="MuSGD",
             **_AUG_ARGS,
         )
+    if lr_override:
+        train_args["lr0"] = float(lr_override)
     if resume:
         train_args["resume"] = resume
     if fork_from:
