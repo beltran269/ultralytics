@@ -132,3 +132,4 @@ cfg: # (str, optional) path to a config.yaml that overrides defaults
 
 # Tracker settings ------------------------------------------------------------------------------------------------------
 tracker: botsort.yaml # (str) tracker config file: botsort.yaml or bytetrack.yaml
+refer_data: # (str, optional) path to data.yaml for reference class names and colors during tracking
