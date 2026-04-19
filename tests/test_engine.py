@@ -161,6 +161,7 @@ def test_nan_recovery():
     trainer.train()
     assert nan_injected[0], "NaN injection failed"
 
+
 def test_train_reuses_loaded_checkpoint_model(monkeypatch):
     """Test training reuses an already-loaded checkpoint model instead of re-parsing the model source."""
     model = YOLO("yolo26n.yaml")
