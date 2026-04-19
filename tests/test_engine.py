@@ -14,8 +14,8 @@ from ultralytics.cfg import get_cfg
 from ultralytics.engine.exporter import Exporter
 from ultralytics.models.yolo import classify, detect, obb, pose, segment
 from ultralytics.nn.tasks import load_checkpoint
-from ultralytics.utils.metrics import DetMetrics, PoseMetrics, SegmentMetrics
 from ultralytics.utils import ASSETS, DEFAULT_CFG, WEIGHTS_DIR
+from ultralytics.utils.metrics import DetMetrics, PoseMetrics, SegmentMetrics
 
 
 def test_func(*args, **kwargs):
