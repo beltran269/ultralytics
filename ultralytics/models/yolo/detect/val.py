@@ -96,6 +96,8 @@ class DetectionValidator(BaseValidator):
         self.seen = 0
         self.jdict = []
         self.metrics.names = model.names
+        self.metrics.clear_stats()
+        self.metrics.clear_image_metrics()
         self.confusion_matrix = ConfusionMatrix(names=model.names, save_matches=self.args.plots and self.args.visualize)
 
     def get_desc(self) -> str:
@@ -186,7 +188,7 @@ class DetectionValidator(BaseValidator):
                     "target_img": np.unique(cls),
                     "conf": np.zeros(0) if no_pred else predn["conf"].cpu().numpy(),
                     "pred_cls": np.zeros(0) if no_pred else predn["cls"].cpu().numpy(),
-                    "im_name": Path(pbatch["im_file"]).name,  # save as key for image metrics
+                    "im_file": pbatch["im_file"],  # use the full image path to avoid basename collisions
                 }
             )
             # Evaluate
@@ -239,8 +241,8 @@ class DetectionValidator(BaseValidator):
             dist.gather_object(self.metrics.box.image_metrics, gathered_image_metrics, dst=0)
             merged_image_metrics = {}
             for image_metrics in gathered_image_metrics:
-                for k, v in image_metrics.items():
-                    merged_image_metrics[k] = v
+                if image_metrics:
+                    merged_image_metrics.update(image_metrics)
             self.metrics.box.image_metrics = merged_image_metrics
             self.seen = len(self.dataloader.dataset)  # total image count from dataset
         elif RANK > 0:

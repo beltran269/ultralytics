@@ -138,9 +138,9 @@ The below examples showcase YOLO model validation with custom arguments in Pytho
     print(results.confusion_matrix.to_df())
     ```
 
-!!! tip "Per-Image Precision and Recall"
+!!! tip "Per-Image Precision, Recall, and F1"
 
-    Validation stores per-image precision and recall metrics (at IoU threshold 0.5) for all tasks except classification.
+    Validation stores per-image precision, recall, and F1 metrics (at IoU threshold 0.5) for all tasks except classification.
     Access these metrics through `results.box.image_metrics` after validation completes.
 
     ```python
@@ -152,12 +152,12 @@ The below examples showcase YOLO model validation with custom arguments in Pytho
     # Validate and access per-image metrics
     results = model.val(data="coco8.yaml")
 
-    # image_metrics is a dictionary with image filenames as keys
+    # image_metrics is a dictionary with image paths as keys
     print(results.box.image_metrics)
-    # Output: {'image1.jpg': {'precision': 0.85, 'recall': 0.92, 'tp': 17, 'fp': 3, 'fn': 1}, 'image2.jpg': {'precision': 0.78, 'recall': 0.88, 'tp': 14, 'fp': 4, 'fn': 2}, ...}
+    # Output: {'/path/to/image1.jpg': {'precision': 0.85, 'recall': 0.92, 'f1': 0.88, 'tp': 17, 'fp': 3, 'fn': 1}, ...}
 
     # Access metrics for a specific image
-    results.box.image_metrics["image1.jpg"]  # {'precision': 0.85, 'recall': 0.92, 'tp': 17, 'fp': 3, 'fn': 1}
+    results.box.image_metrics["/path/to/image1.jpg"]  # {'precision': 0.85, 'recall': 0.92, 'f1': 0.88, 'tp': 17, 'fp': 3, 'fn': 1}
     ```
 
     Each entry in `image_metrics` contains the following keys:
@@ -166,6 +166,7 @@ The below examples showcase YOLO model validation with custom arguments in Pytho
     |-------------|---------------------------------------------------|
     | `precision` | Precision score for the image (`tp / (tp + fp)`). |
     | `recall`    | Recall score for the image (`tp / (tp + fn)`).    |
+    | `f1`        | Harmonic mean of precision and recall.            |
     | `tp`        | Number of true positives for the image.           |
     | `fp`        | Number of false positives for the image.          |
     | `fn`        | Number of false negatives for the image.          |

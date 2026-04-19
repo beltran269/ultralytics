@@ -194,8 +194,8 @@ class PoseValidator(DetectionValidator):
             dist.gather_object(self.metrics.pose.image_metrics, gathered_image_metrics, dst=0)
             merged_image_metrics = {}
             for image_metrics in gathered_image_metrics:
-                for k, v in image_metrics.items():
-                    merged_image_metrics[k] = v
+                if image_metrics:
+                    merged_image_metrics.update(image_metrics)
             self.metrics.pose.image_metrics = merged_image_metrics
         elif RANK > 0:
             dist.gather_object(self.metrics.pose.image_metrics, None, dst=0)
