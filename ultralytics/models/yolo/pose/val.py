@@ -7,9 +7,10 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.distributed as dist
 
 from ultralytics.models.yolo.detect import DetectionValidator
-from ultralytics.utils import ops
+from ultralytics.utils import RANK, ops
 from ultralytics.utils.metrics import OKS_SIGMA, PoseMetrics, kpt_iou
 
 
@@ -184,6 +185,21 @@ class PoseValidator(DetectionValidator):
             tp_p = self.match_predictions(preds["cls"], gt_cls, iou).cpu().numpy()
         tp.update({"tp_p": tp_p})  # update tp with kpts IoU
         return tp
+
+    def gather_stats(self) -> None:
+        """Gather stats from all GPUs."""
+        super().gather_stats()  # gather stats from DetectionValidator
+        if RANK == 0:
+            gathered_image_metrics = [None] * dist.get_world_size()
+            dist.gather_object(self.metrics.pose.image_metrics, gathered_image_metrics, dst=0)
+            merged_image_metrics = {}
+            for image_metrics in gathered_image_metrics:
+                if image_metrics:
+                    merged_image_metrics.update(image_metrics)
+            self.metrics.pose.image_metrics = merged_image_metrics
+        elif RANK > 0:
+            dist.gather_object(self.metrics.pose.image_metrics, None, dst=0)
+            self.metrics.pose.image_metrics = {}
 
     def save_one_txt(self, predn: dict[str, torch.Tensor], save_conf: bool, shape: tuple[int, int], file: Path) -> None:
         """Save YOLO pose detections to a text file in normalized coordinates.

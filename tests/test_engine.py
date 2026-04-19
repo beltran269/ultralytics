@@ -4,6 +4,7 @@ import sys
 from types import SimpleNamespace
 from unittest import mock
 
+import numpy as np
 import pytest
 import torch
 
@@ -13,6 +14,7 @@ from ultralytics.cfg import get_cfg
 from ultralytics.engine.exporter import Exporter
 from ultralytics.models.yolo import classify, detect, obb, pose, segment
 from ultralytics.nn.tasks import load_checkpoint
+from ultralytics.utils.metrics import DetMetrics, PoseMetrics, SegmentMetrics
 from ultralytics.utils import ASSETS, DEFAULT_CFG, WEIGHTS_DIR
 
 
@@ -160,6 +162,57 @@ def test_nan_recovery():
     trainer.add_callback("on_train_batch_end", inject_nan)
     trainer.train()
     assert nan_injected[0], "NaN injection failed"
+
+
+def test_det_metrics_preserve_duplicate_basenames():
+    """Test per-image metrics use full image paths so duplicate basenames do not overwrite each other."""
+    metrics = DetMetrics()
+    stat = {
+        "tp": np.ones((1, 10), dtype=bool),
+        "conf": np.array([0.9]),
+        "pred_cls": np.array([0]),
+        "target_cls": np.array([0]),
+        "target_img": np.array([0]),
+    }
+
+    metrics.update_stats({**stat, "im_file": "images/folder_a/shared.jpg"})
+    metrics.update_stats({**stat, "im_file": "images/folder_b/shared.jpg"})
+
+    assert set(metrics.box.image_metrics) == {"images/folder_a/shared.jpg", "images/folder_b/shared.jpg"}
+    assert metrics.box.image_metrics["images/folder_a/shared.jpg"]["tp"] == 1
+    assert isinstance(metrics.box.image_metrics["images/folder_a/shared.jpg"]["tp"], int)
+
+
+@pytest.mark.parametrize(
+    "metrics_cls,metric_attrs",
+    [
+        (DetMetrics, ("box",)),
+        (SegmentMetrics, ("box", "seg")),
+        (PoseMetrics, ("box", "pose")),
+    ],
+)
+def test_clear_image_metrics(metrics_cls, metric_attrs):
+    """Test task metrics clear all per-image metric stores."""
+    metrics = metrics_cls()
+    for attr in metric_attrs:
+        getattr(metrics, attr).image_metrics["stale.jpg"] = {"precision": 1.0}
+
+    metrics.clear_image_metrics()
+
+    for attr in metric_attrs:
+        assert getattr(metrics, attr).image_metrics == {}, f"{attr} image metrics were not cleared"
+
+
+def test_detection_validator_init_metrics_clears_image_metrics():
+    """Test validator init resets stale per-image metrics before a new validation run."""
+    cfg = get_cfg(DEFAULT_CFG)
+    validator = detect.DetectionValidator(args=cfg)
+    validator.data = {cfg.split: ""}
+    validator.metrics.box.image_metrics["stale.jpg"] = {"precision": 1.0}
+
+    validator.init_metrics(SimpleNamespace(names={0: "item"}))
+
+    assert validator.metrics.box.image_metrics == {}, "Detection validator did not clear per-image metrics"
 
 
 def test_train_reuses_loaded_checkpoint_model(monkeypatch):

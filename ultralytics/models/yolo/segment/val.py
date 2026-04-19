@@ -7,10 +7,11 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 
 from ultralytics.models.yolo.detect import DetectionValidator
-from ultralytics.utils import LOGGER, ops
+from ultralytics.utils import LOGGER, RANK, ops
 from ultralytics.utils.checks import check_requirements
 from ultralytics.utils.metrics import SegmentMetrics, mask_iou
 
@@ -140,6 +141,21 @@ class SegmentationValidator(DetectionValidator):
                 masks = masks.gt_(0.5)
         prepared_batch["masks"] = masks
         return prepared_batch
+
+    def gather_stats(self) -> None:
+        """Gather stats from all GPUs."""
+        super().gather_stats()  # gather stats from DetectionValidator
+        if RANK == 0:
+            gathered_image_metrics = [None] * dist.get_world_size()
+            dist.gather_object(self.metrics.seg.image_metrics, gathered_image_metrics, dst=0)
+            merged_image_metrics = {}
+            for image_metrics in gathered_image_metrics:
+                if image_metrics:
+                    merged_image_metrics.update(image_metrics)
+            self.metrics.seg.image_metrics = merged_image_metrics
+        elif RANK > 0:
+            dist.gather_object(self.metrics.seg.image_metrics, None, dst=0)
+            self.metrics.seg.image_metrics = {}
 
     def _process_batch(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> dict[str, np.ndarray]:
         """Compute correct prediction matrix for a batch based on bounding boxes and optional masks.
