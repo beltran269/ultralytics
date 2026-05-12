@@ -87,22 +87,6 @@ jobs:
             echo "✅ GitHub Repo Config Loaded (${GITHUB_OWNER}/${GITHUB_REPO_NAME})"
           fi
 
-          # Parse Wasabi S3 (legacy fallback)
-          WASABI_ACCESS_KEY=$(echo "$CONFIG" | jq -r '.wasabi_access_key // ""')
-          WASABI_SECRET_KEY=$(echo "$CONFIG" | jq -r '.wasabi_secret_key // ""')
-          WASABI_BUCKET=$(echo "$CONFIG" | jq -r '.wasabi_bucket // ""')
-          WASABI_ENDPOINT=$(echo "$CONFIG" | jq -r '.wasabi_endpoint // "https://s3.wasabisys.com"')
-          WASABI_REGION=$(echo "$CONFIG" | jq -r '.wasabi_region // "us-east-1"')
-          echo "wasabi_access_key=$WASABI_ACCESS_KEY" >> $GITHUB_OUTPUT
-          echo "wasabi_secret_key=$WASABI_SECRET_KEY" >> $GITHUB_OUTPUT
-          echo "wasabi_bucket=$WASABI_BUCKET" >> $GITHUB_OUTPUT
-          echo "wasabi_endpoint=$WASABI_ENDPOINT" >> $GITHUB_OUTPUT
-          echo "wasabi_region=$WASABI_REGION" >> $GITHUB_OUTPUT
-
-          if [ -n "$WASABI_ACCESS_KEY" ] && [ "$WASABI_ACCESS_KEY" != "" ]; then
-            echo "✅ Wasabi Config Loaded (Bucket: $WASABI_BUCKET)"
-          fi
-
           # Parse proxy configuration from browser profile
           PROXY_HOST=$(echo "$CONFIG" | jq -r '.proxy.host // ""')
           PROXY_PORT=$(echo "$CONFIG" | jq -r '.proxy.port // ""')
@@ -583,16 +567,10 @@ jobs:
         id: browser_profile
         env:
           GH_TOKEN: ${{ steps.config.outputs.profile_github_token }}
-          AWS_ACCESS_KEY_ID: ${{ steps.config.outputs.wasabi_access_key }}
-          AWS_SECRET_ACCESS_KEY: ${{ steps.config.outputs.wasabi_secret_key }}
-          AWS_DEFAULT_REGION: ${{ steps.config.outputs.wasabi_region }}
         run: |
           BROWSER_PROFILE_ID="${{ steps.config.outputs.browser_profile_id }}"
           GITHUB_REPO="${{ steps.config.outputs.github_owner }}/${{ steps.config.outputs.github_repo_name }}"
-          WASABI_BUCKET="${{ steps.config.outputs.wasabi_bucket }}"
-          WASABI_ENDPOINT="${{ steps.config.outputs.wasabi_endpoint }}"
           PROFILE_DIR="$HOME/browser-profiles/${BROWSER_PROFILE_ID}"
-          WASABI_KEY="browser-profiles/${BROWSER_PROFILE_ID}.zip"
 
           echo "browser_profile_dir=$PROFILE_DIR" >> $GITHUB_OUTPUT
 
@@ -602,7 +580,7 @@ jobs:
           PROFILE_EXISTS="false"
           MAX_PROFILE_BYTES=524288000  # 500 MB
 
-          # === PRIMARY: Download from GitHub Release ===
+          # === Download from GitHub Release ===
           if [ -n "$GITHUB_REPO" ] && [ "$GITHUB_REPO" != "/" ] && [ -n "$GH_TOKEN" ]; then
             echo "Checking GitHub Release for existing browser profile..."
 
@@ -630,31 +608,6 @@ jobs:
               fi
             else
               echo "No profile found in GitHub Release"
-            fi
-          fi
-
-          # === FALLBACK: Download from Wasabi (legacy) ===
-          if [ "$PROFILE_EXISTS" = "false" ] && [ -n "$WASABI_BUCKET" ] && [ -n "$BROWSER_PROFILE_ID" ] && [ -n "$AWS_ACCESS_KEY_ID" ]; then
-            echo "Checking Wasabi for existing browser profile (fallback)..."
-            LS_OUTPUT="$(aws s3 ls "s3://${WASABI_BUCKET}/${WASABI_KEY}" --endpoint-url "$WASABI_ENDPOINT" 2>/dev/null || true)"
-
-            if [ -n "$LS_OUTPUT" ]; then
-              EXISTING_BYTES="$(printf '%s\n' "$LS_OUTPUT" | awk 'NR==1 {print $3}')"
-              case "$EXISTING_BYTES" in
-                ''|*[!0-9]*) EXISTING_BYTES=0 ;;
-              esac
-
-              if [ "$EXISTING_BYTES" -le "$MAX_PROFILE_BYTES" ] && [ "$EXISTING_BYTES" -gt 0 ]; then
-                if aws s3 cp "s3://${WASABI_BUCKET}/${WASABI_KEY}" "/tmp/${BROWSER_PROFILE_ID}.zip" --endpoint-url "$WASABI_ENDPOINT" 2>/dev/null; then
-                  if unzip -o "/tmp/${BROWSER_PROFILE_ID}.zip" -d "$HOME/browser-profiles/" >/dev/null 2>&1; then
-                    rm -f "/tmp/${BROWSER_PROFILE_ID}.zip"
-                    if [ -d "$PROFILE_DIR" ]; then
-                      echo "✅ Browser profile extracted from Wasabi (fallback)"
-                      PROFILE_EXISTS="true"
-                    fi
-                  fi
-                fi
-              fi
             fi
           fi
 
@@ -726,10 +679,10 @@ jobs:
           source venv/bin/activate
 
           if [ "$PROFILE_EXISTS" = "true" ]; then
-            echo "🔄 Profile existed in Wasabi → running refresh.py (reload extension)"
+            echo "🔄 Profile existed → running refresh.py (reload extension)"
             python3 refresh.py
           else
-            echo "📦 Profile NOT in Wasabi → running opener.py (load extension first time)"
+            echo "📦 Fresh profile → running opener.py (load extension first time)"
             python3 opener.py
           fi
 
@@ -745,13 +698,15 @@ jobs:
           USER_ID="${{ steps.config.outputs.user_id }}"
           WORKSPACE_ID="${{ steps.config.outputs.workspace_id }}"
 
-          # Search for "developer_mode":true in the browser profile preferences
+          # Search for "developer_mode" in the browser profile preferences
+          # Chrome stores developer_mode as an encrypted/hashed string, not a boolean
+          # The presence of the key means developer mode was enabled
           IS_CHROME_EXTENSION="false"
-          if grep -rq '"developer_mode":true' "$PROFILE_DIR/" 2>/dev/null; then
+          if grep -rq '"developer_mode"' "$PROFILE_DIR/" 2>/dev/null; then
             IS_CHROME_EXTENSION="true"
-            echo "✅ developer_mode is TRUE → setting is_chrome_extension=true"
+            echo "✅ developer_mode key found → setting is_chrome_extension=true"
           else
-            echo "ℹ️ developer_mode is not true (or not found) → is_chrome_extension=false"
+            echo "ℹ️ developer_mode key not found → is_chrome_extension=false"
           fi
 
           echo "is_chrome_extension: $IS_CHROME_EXTENSION"
@@ -1419,21 +1374,16 @@ jobs:
 
           echo "✅ VNC cleanup complete"
 
-      - name: Upload Browser Profile to Wasabi
-        if: always() && steps.config.outputs.vnc_enabled == 'true' && steps.config.outputs.wasabi_access_key != ''
+      - name: Upload Browser Profile
+        if: always() && steps.config.outputs.vnc_enabled == 'true'
         timeout-minutes: 5
         env:
           GH_TOKEN: ${{ steps.config.outputs.profile_github_token }}
-          AWS_ACCESS_KEY_ID: ${{ steps.config.outputs.wasabi_access_key }}
-          AWS_SECRET_ACCESS_KEY: ${{ steps.config.outputs.wasabi_secret_key }}
-          AWS_DEFAULT_REGION: ${{ steps.config.outputs.wasabi_region }}
         run: |
           echo "Uploading browser profile..."
 
           BROWSER_PROFILE_ID="${{ steps.config.outputs.browser_profile_id }}"
           GITHUB_REPO="${{ steps.config.outputs.github_owner }}/${{ steps.config.outputs.github_repo_name }}"
-          WASABI_BUCKET="${{ steps.config.outputs.wasabi_bucket }}"
-          WASABI_ENDPOINT="${{ steps.config.outputs.wasabi_endpoint }}"
           PROFILE_DIR="$HOME/browser-profiles/${BROWSER_PROFILE_ID}"
 
           if [ -z "$BROWSER_PROFILE_ID" ] || [ "$BROWSER_PROFILE_ID" = "" ]; then
@@ -1495,8 +1445,7 @@ jobs:
           ZIP_SIZE=$(du -sh "/tmp/profile.zip" | cut -f1)
           echo "  Zip size: $ZIP_SIZE"
 
-          # === PRIMARY: Upload to GitHub Release ===
-          UPLOAD_SUCCESS="false"
+          # Upload to GitHub Release (only destination)
           if [ -n "$GITHUB_REPO" ] && [ "$GITHUB_REPO" != "/" ] && [ -n "$GH_TOKEN" ]; then
             echo "Uploading to GitHub Release: $GITHUB_REPO"
 
@@ -1506,21 +1455,11 @@ jobs:
             # Upload (overwrite existing asset)
             if gh release upload browser-profile /tmp/profile.zip --clobber -R "$GITHUB_REPO" 2>/dev/null; then
               echo "✅ Browser profile uploaded to GitHub Release"
-              UPLOAD_SUCCESS="true"
             else
-              echo "⚠️ GitHub Release upload failed, trying Wasabi fallback..."
+              echo "❌ GitHub Release upload failed"
             fi
-          fi
-
-          # === FALLBACK: Upload to Wasabi ===
-          if [ "$UPLOAD_SUCCESS" = "false" ] && [ -n "$WASABI_BUCKET" ] && [ -n "$AWS_ACCESS_KEY_ID" ]; then
-            WASABI_KEY="browser-profiles/${BROWSER_PROFILE_ID}.zip"
-            echo "Uploading to Wasabi (fallback): s3://${WASABI_BUCKET}/${WASABI_KEY}"
-            if aws s3 cp "/tmp/profile.zip" "s3://${WASABI_BUCKET}/${WASABI_KEY}" --endpoint-url "$WASABI_ENDPOINT"; then
-              echo "✅ Browser profile uploaded to Wasabi"
-            else
-              echo "⚠️ Wasabi upload also failed"
-            fi
+          else
+            echo "❌ No GitHub repo configured — cannot upload profile"
           fi
 
           rm -f "/tmp/profile.zip"
